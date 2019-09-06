@@ -28,6 +28,7 @@ const uint16_t register_init[18] = {
 void setup(){
     Wire.begin();
     Serial.begin(9600);
+    Initialize(ar1010Address, register_init);
 }
 
 bool simpleFlag = false;
@@ -35,11 +36,12 @@ bool simpleFlag = false;
 void loop(){
     if (!simpleFlag){
         Serial.println("Go");
-        Serial.println(IsAR1010(ar1010Address));
-        Initialize(ar1010Address, register_init);
-        Serial.println(readFromRegister(ar1010Address, 0), BIN);
-        Serial.println(readFromRegister(ar1010Address, 1), BIN);
-        Serial.println(readFromRegister(ar1010Address, 2), BIN);
+        Serial.println(IsAR1010(ar1010Address));        
+        for (uint8_t i = 0; i < 10; i++)
+        {
+            Serial.println(readFromRegister(ar1010Address, 0x13), BIN);
+            delay(3000);
+        }       
         // SetFrequency(ar1010Address, 100.1);
         Serial.println("End");      
         simpleFlag = true;
@@ -47,10 +49,13 @@ void loop(){
 }
 
 void Initialize(uint8_t radioAddress, uint16_t writableRegisters[18]){
-    for (uint8_t i = 0; i < 18; i++)
+    for (uint8_t i = 1; i < 18; i++)
     {
         writeToRegister(radioAddress, i, writableRegisters[i]);
-    }    
+        Serial.println(readFromRegister(ar1010Address, i), BIN);
+    }   
+    writeToRegister(radioAddress, 0, writableRegisters[0]); 
+    Serial.println(readFromRegister(ar1010Address, 0), BIN);
 }
 
 void SetFrequency(uint8_t radioAddress, float frequencyMHz){
