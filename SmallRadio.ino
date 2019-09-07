@@ -25,6 +25,13 @@ const uint16_t register_init[18] = {
 	0xDF61		// R17: 1101 1111 0110 0001
 };
 
+const uint8_t volume_map[19] = {
+	0x0F, 0xCF, 0xDF, 0xFF, 0xCB,
+	0xDB, 0xFB, 0xFA, 0xF9, 0xF8,
+	0xF7, 0xD6, 0xE6, 0xF6, 0xE3,
+	0xF3, 0xF2, 0xF1, 0xF0
+};
+
 bool simpleFlag = false;
 
 void setup(){
@@ -46,10 +53,22 @@ void loop(){
         Serial.println(command, HEX);     
         switch (command)
         {
-        case 0x3030:
-            uint16_t frequencyInKHz = GetNumberFromSerialPort();            
-            SetFrequency(ar1010Address, frequencyInKHz);
-            break;        
+        case 0x3030:    // Означает, что через посл. порт передались "00".
+            {
+                // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
+                uint16_t frequencyInKHz = GetNumberFromSerialPort() + 1;            
+                SetFrequency(ar1010Address, frequencyInKHz);
+                break;  
+            }
+            
+        case 0x3031:
+            {
+                Serial.println("Установка громкости.");
+                byte volume = GetNumberFromSerialPort();
+                Serial.println(volume);
+                SetVolume(ar1010Address, volume);
+                break;
+            }            
         default:
             break;
         }            
@@ -57,12 +76,28 @@ void loop(){
     delay(2000);
 }
 
+void SetVolume(uint8_t radioAddress, byte volume){
+    volume = constrain(volume, 0, 18);
+    uint8_t registersVolumeValue = volume_map[volume];
+
+    uint16_t thirdRegisterData = readFromRegister(radioAddress, 3);   
+    uint16_t thirdRegisterDataWithMask = thirdRegisterData & 0xF87F;
+    uint16_t newThirdRegisterData = thirdRegisterDataWithMask | ((registersVolumeValue & 0x0F) << 7);
+    
+    uint16_t fourteenRegisterData = readFromRegister(radioAddress, 14);
+    
+    uint16_t fourteenRegisterDataWithMask = fourteenRegisterData & 0x0FFF;
+    uint16_t newFourteenRegisterData = fourteenRegisterDataWithMask | ((registersVolumeValue & 0xF0) << 8);    
+
+    writeToRegister(radioAddress, 3, newThirdRegisterData);
+    writeToRegister(radioAddress, 14, newFourteenRegisterData);
+}
+
 uint16_t GetNumberFromSerialPort(){
     byte bytesNumber = Serial.available();
     uint16_t currentDigit;
-
-    // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
-    uint16_t answear = 1;       
+    
+    uint16_t answear = 0;       
     for (byte i = bytesNumber - 1; i != 255; i--)
     {        
         currentDigit = Serial.read() - 48;        
