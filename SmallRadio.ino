@@ -25,58 +25,79 @@ const uint16_t register_init[18] = {
 	0xDF61		// R17: 1101 1111 0110 0001
 };
 
+bool simpleFlag = false;
+byte bytesNumber, command;
+
 void setup(){
     Wire.begin();
-    Serial.begin(9600);    
+    Serial.begin(9600);     
     Initialize(ar1010Address, register_init);    
 }
 
-bool simpleFlag = false;
-
 void loop(){
-    if (!simpleFlag){
-        Serial.println("Go");
-        Serial.println(IsAR1010(ar1010Address));           
-        SetFrequency(ar1010Address, 100.1);
-        Serial.println("End");      
-        simpleFlag = true;
-    }
+    // if (!simpleFlag){
+    //     Serial.println("Go");                  
+    //     SetFrequency(ar1010Address, 980);
+    //     Serial.println("End");      
+    //     simpleFlag = true;
+    // }
+    Serial.println(Serial.available());    
+    if (Serial.available()){
+        command = GetCommand();
+        switch (command)
+        {
+        case 0x3030:
+            uint16_t frequencyInKHz = 
+            break;
+        
+        default:
+            break;
+        }
+        Serial.read();
+    }   
+    delay(2000);
 }
 
 void Initialize(uint8_t radioAddress, uint16_t writableRegisters[18]){
     for (uint8_t i = 1; i < 18; i++)
-    {
-        Serial.print(writableRegisters[i], HEX);
-        Serial.print(" -> ");
-        writeToRegister(radioAddress, i, writableRegisters[i]);
-        Serial.println(readFromRegister(ar1010Address, i), HEX);
+    {        
+        writeToRegister(radioAddress, i, writableRegisters[i]);       
     }   
-    writeToRegister(radioAddress, 0, writableRegisters[0]); 
-    Serial.print(writableRegisters[0], HEX);
-    Serial.print(" -> ");
-    Serial.println(readFromRegister(ar1010Address, 0), HEX);
-    bool isReady = false;
-    while (isReady){
+    writeToRegister(radioAddress, 0, writableRegisters[0]);     
+    bool isReady;
+    do {
         isReady = ReadBitFromRegister(ar1010Address, 0x13, 5);
-        Serial.print(isReady);
-    }    
+        // Serial.print(isReady);
+    }
+    while (!isReady);  
+    Serial.println("Окончена инициализация!");     
 }
 
-void SetFrequency(uint8_t radioAddress, float frequencyMHz){
-    uint16_t convertedFrequency = 10 * (frequencyMHz - 69);
+void GetCommand(){
+    bytesNumber = Serial.available();
+    byte highByte, leastByte;
+    highByte = Serial.read();
+    leastByte = Serial.read();
+    uint16_t command = (highByte << 8) + leastByte;
+    return command;
+}
 
+void SetFrequency(uint8_t radioAddress, uint16_t kHzFrequency){
+    uint16_t convertedFrequency = kHzFrequency - 690;
+    
     // Частота должна лежать в нужном диапазоне.
     uint16_t constrainConvertedFrequency = constrain(convertedFrequency, 185, 390);
-
+    
     writeBitToRegister(radioAddress, 2, 0, 9);
     uint16_t registerData = readFromRegister(radioAddress, 2);
-
+    
     // Затираем нулями 9 младших разрядов для ввода частоты.
-    uint16_t registerDataWithMask = registerData & 0xFE;  
+    uint16_t registerDataWithMask = registerData & 0xFE00;  
+    
+    uint16_t registerDataWithFrequencyValue = registerDataWithMask | constrainConvertedFrequency;    
+    writeToRegister(radioAddress, 2, registerDataWithFrequencyValue);
 
-    uint16_t registerDataWithFrequencyValue = registerDataWithMask | constrainConvertedFrequency;  
-    writeBitToRegister(radioAddress, 2, 1, 9);
-    Serial.println(readFromRegister(radioAddress, 2), BIN);
+    writeBitToRegister(radioAddress, 2, 1, 9);    
 }
 
 bool IsAR1010(uint8_t radioAddress){
@@ -98,11 +119,11 @@ void writeToRegister(uint8_t radioAddress, uint8_t registerAddress, uint16_t reg
     Wire.endTransmission();
 }
 
-void writeBitToRegister(uint8_t radioAddress, uint8_t registerAddress, bool bitNumber, byte shiftBits){
+void writeBitToRegister(uint8_t radioAddress, uint8_t registerAddress, bool bitValue, byte bitNumber){
     uint16_t temp;
 
     // В условии накладывается маска в зависимости от значения бита (0 или 1).
-    if (bitNumber)
+    if (bitValue)
         temp = readFromRegister(radioAddress, registerAddress) | (1 << bitNumber);
     else
         temp = readFromRegister(radioAddress, registerAddress) & ~(1 << bitNumber);     // ~ - побитовое НЕ 
