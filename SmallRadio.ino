@@ -26,7 +26,6 @@ const uint16_t register_init[18] = {
 };
 
 bool simpleFlag = false;
-byte bytesNumber, command;
 
 void setup(){
     Wire.begin();
@@ -42,20 +41,34 @@ void loop(){
     //     simpleFlag = true;
     // }
     Serial.println(Serial.available());    
-    if (Serial.available()){
-        command = GetCommand();
+    while (Serial.available()){
+        uint16_t command = GetCommand();  
+        Serial.println(command, HEX);     
         switch (command)
         {
         case 0x3030:
-            uint16_t frequencyInKHz = 
-            break;
-        
+            uint16_t frequencyInKHz = GetNumberFromSerialPort();            
+            SetFrequency(ar1010Address, frequencyInKHz);
+            break;        
         default:
             break;
-        }
-        Serial.read();
+        }            
     }   
     delay(2000);
+}
+
+uint16_t GetNumberFromSerialPort(){
+    byte bytesNumber = Serial.available();
+    uint16_t currentDigit;
+
+    // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
+    uint16_t answear = 1;       
+    for (byte i = bytesNumber - 1; i != 255; i--)
+    {        
+        currentDigit = Serial.read() - 48;        
+        answear += currentDigit * pow(10, i);        
+    }
+    return answear;
 }
 
 void Initialize(uint8_t radioAddress, uint16_t writableRegisters[18]){
@@ -73,8 +86,8 @@ void Initialize(uint8_t radioAddress, uint16_t writableRegisters[18]){
     Serial.println("Окончена инициализация!");     
 }
 
-void GetCommand(){
-    bytesNumber = Serial.available();
+uint16_t GetCommand(){
+    byte bytesNumber = Serial.available();
     byte highByte, leastByte;
     highByte = Serial.read();
     leastByte = Serial.read();
