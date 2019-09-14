@@ -40,13 +40,7 @@ void setup(){
     Initialize(ar1010Address, register_init);    
 }
 
-void loop(){
-    // if (!simpleFlag){
-    //     Serial.println("Go");                  
-    //     SetFrequency(ar1010Address, 980);
-    //     Serial.println("End");      
-    //     simpleFlag = true;
-    // }
+void loop(){    
     Serial.println(Serial.available());    
     while (Serial.available()){
         uint16_t command = GetCommand();  
@@ -74,6 +68,10 @@ void loop(){
         }            
     }   
     delay(2000);
+}
+
+void EnableSignal(bool enable){
+    writeBitToRegister()
 }
 
 void SetVolume(uint8_t radioAddress, byte volume){
