@@ -56,7 +56,7 @@ void loop(){
         Serial.println(command, HEX);
         switch (command)
         {
-        case 0x3030:    // Означает, что через посл. порт передались "00".
+            case 0x3030:    // Означает, что через посл. порт передались "00".
             {
                 // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
                 uint16_t frequencyInKHz = GetNumberFromSerialPort() + 1;
@@ -65,7 +65,7 @@ void loop(){
                 break;
             }
 
-        case 0x3031:    // "01"
+            case 0x3031:    // "01"
             {
                 Serial.println("Установка громкости.");
                 byte volume = GetNumberFromSerialPort();
@@ -75,27 +75,35 @@ void loop(){
                 EEPROM.write(2, volume);
                 break;
             }
-        case 0x3032:    // "02"
-            {
-                Serial.println();
+            case 0x3032:    // "02", Происходит скачок вверх на 4 кГц. Лучше выключать звук Hardmute.
+            {                
                 bool enable = GetNumberFromSerialPort();
                 EnableSignal(enable);
                 break;
             }
-        default:
-            break;
+            case 0x3033:    // "03"
+            {            
+                bool enable = GetNumberFromSerialPort();
+                HardMute(enable);
+                break;
+            }            
+            case 0x3034:    // "04"
+            {  
+                bool isUpDirection = GetNumberFromSerialPort();
+                StartSeek(isUpDirection);
+                break;
+            }       
+            default:
+                break;
         }
     }
     delay(2000);
 }
 
 void WriteTwoBytesToEeprom(byte firstByteNumber, uint16_t data){
-    Serial.println(data, HEX);
     byte highByte = data >> 8;
-    Serial.println(highByte, HEX);
     EEPROM.write(firstByteNumber++, highByte);
     byte leastByte = data;
-    Serial.println(leastByte, HEX);
     EEPROM.write(firstByteNumber, leastByte);
 }
 
@@ -105,6 +113,31 @@ uint16_t ReadTwoBytesFromEeprom(byte firstByteNumber){
     uint16_t data = (highByte << 8) + leastByte;
     // Serial.println(data, HEX);
     return data;
+}
+
+void StartSeek(bool isUpDirection){
+    HardMute(true);   
+    WriteBiteToRegister(3, 0, 14);              // Unset SEEK bit.
+    WriteBiteToRegister(3, isUpDirection, 15);  // Set SEEKUP bit.
+    SetSeekTreshold(10);
+    WriteBiteToRegister(3, 1, 14);              // Set SEEK bit.
+    bool isContinuedSeek = true;
+    do{
+        isContinuedSeek = !ReadFromRegister(13, 5);
+    }
+    while (isContinuedSeek);
+    HardMute(false);
+}
+
+void SetSeekTreshold(byte tresholdValue){
+    uint16_t registerData = ReadFromRegister(3);
+    uint16_t clearedData = registerData & 0xFF80;
+    uint16_t writtenTresholdValueData = clearedData | tresholdValue;
+    WriteToRegister(3, writtenTresholdValueData);
+}
+
+void HardMute(bool enable){
+    WriteBiteToRegister(1, enable, 1);
 }
 
 void EnableSignal(bool enable){
