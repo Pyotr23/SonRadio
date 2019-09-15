@@ -1,11 +1,12 @@
 #include <Arduino.h>
 #include <Wire.h>
 #include <HardwareSerial.h>
+#include <EEPROM.h>
 
-const uint8_t ar1010Address = 0x10;
+const byte _ar1010Address = 0x10;
 
 const uint16_t register_init[18] = {
-	0xFFFB,     // R0:  1111 1111 1111 1011 
+	0xFFFB,     // R0:  1111 1111 1111 1011
 	0x5B15,     // R1:  0101 1011 0001 0101 - Mono (D3), Softmute (D2), Hardmute (D1)  !! SOFT-MUTED BY DEFAULT !!
 	0xD0B9,     // R2:  1101 0000 1011 1001 - Tune/Channel
 	0xA010,     // R3:  1010 0000 0001 0000 - Seekup (D15), Seek bit (D14), Space 100kHz (D13), Seek threshold: 16 (D6-D0)
@@ -13,7 +14,7 @@ const uint16_t register_init[18] = {
 	0x28AB,     // R5:  0010 1000 1010 1011
 	0x6400,     // R6:  0110 0100 0000 0000
 	0x1EE7,		// R7:  0001 1110 1110 0111
-	0x7141,		// R8:  0111 0001 0100 0001 
+	0x7141,		// R8:  0111 0001 0100 0001
 	0x007D,		// R9:  0000 0000 0111 1101
 	0x82C6,		// R10: 1000 0010 1100 0110 - Seek wrap (D3)
 	0x4E55,		// R11: 0100 1110 0101 0101
@@ -32,91 +33,135 @@ const uint8_t volume_map[19] = {
 	0xF3, 0xF2, 0xF1, 0xF0
 };
 
-bool simpleFlag = false;
+int _radioAddress;
 
 void setup(){
     Wire.begin();
-    Serial.begin(9600);     
-    Initialize(ar1010Address, register_init);    
+    Serial.begin(9600);
+    if (IsAR1010()){
+        _radioAddress = _ar1010Address;
+    }
+    Initialize(register_init);
+    // Вот так нужно для того, чтобы установилась частота, записанная в EEPROM.
+    uint16_t memoryFrequency = ReadTwoBytesFromEeprom(0) - 4;
+    SetFrequency(memoryFrequency);
+    
+    byte volume = EEPROM.read(2);
+    SetVolume(volume);
 }
 
-void loop(){    
-    Serial.println(Serial.available());    
+void loop(){
     while (Serial.available()){
-        uint16_t command = GetCommand();  
-        Serial.println(command, HEX);     
+        uint16_t command = GetCommand();
+        Serial.println(command, HEX);
         switch (command)
         {
         case 0x3030:    // Означает, что через посл. порт передались "00".
             {
                 // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
-                uint16_t frequencyInKHz = GetNumberFromSerialPort() + 1;            
-                SetFrequency(ar1010Address, frequencyInKHz);
-                break;  
+                uint16_t frequencyInKHz = GetNumberFromSerialPort() + 1;
+                SetFrequency(frequencyInKHz);
+                WriteTwoBytesToEeprom(0, frequencyInKHz);
+                break;
             }
-            
-        case 0x3031:
+
+        case 0x3031:    // "01"
             {
                 Serial.println("Установка громкости.");
                 byte volume = GetNumberFromSerialPort();
+                volume = constrain(volume, 0, 18);
                 Serial.println(volume);
-                SetVolume(ar1010Address, volume);
+                SetVolume(volume);
+                EEPROM.write(2, volume);
                 break;
-            }            
+            }
+        case 0x3032:    // "02"
+            {
+                Serial.println();
+                bool enable = GetNumberFromSerialPort();
+                EnableSignal(enable);
+                break;
+            }
         default:
             break;
-        }            
-    }   
+        }
+    }
     delay(2000);
 }
 
-void EnableSignal(bool enable){
-    writeBitToRegister()
+void WriteTwoBytesToEeprom(byte firstByteNumber, uint16_t data){
+    Serial.println(data, HEX);
+    byte highByte = data >> 8;
+    Serial.println(highByte, HEX);
+    EEPROM.write(firstByteNumber++, highByte);
+    byte leastByte = data;
+    Serial.println(leastByte, HEX);
+    EEPROM.write(firstByteNumber, leastByte);
 }
 
-void SetVolume(uint8_t radioAddress, byte volume){
-    volume = constrain(volume, 0, 18);
-    uint8_t registersVolumeValue = volume_map[volume];
+uint16_t ReadTwoBytesFromEeprom(byte firstByteNumber){
+    byte highByte = EEPROM.read(firstByteNumber++);
+    byte leastByte = EEPROM.read(firstByteNumber);
+    uint16_t data = (highByte << 8) + leastByte;
+    // Serial.println(data, HEX);
+    return data;
+}
 
-    uint16_t thirdRegisterData = readFromRegister(radioAddress, 3);   
+void EnableSignal(bool enable){
+    WriteBiteToRegister(0, enable, 0);
+}
+
+void SetVolume(byte volume){
+    byte registersVolumeValue = volume_map[volume];
+
+    uint16_t thirdRegisterData = ReadFromRegister(3);
     uint16_t thirdRegisterDataWithMask = thirdRegisterData & 0xF87F;
     uint16_t newThirdRegisterData = thirdRegisterDataWithMask | ((registersVolumeValue & 0x0F) << 7);
-    
-    uint16_t fourteenRegisterData = readFromRegister(radioAddress, 14);
-    
-    uint16_t fourteenRegisterDataWithMask = fourteenRegisterData & 0x0FFF;
-    uint16_t newFourteenRegisterData = fourteenRegisterDataWithMask | ((registersVolumeValue & 0xF0) << 8);    
 
-    writeToRegister(radioAddress, 3, newThirdRegisterData);
-    writeToRegister(radioAddress, 14, newFourteenRegisterData);
+    uint16_t fourteenRegisterData = ReadFromRegister(14);
+
+    uint16_t fourteenRegisterDataWithMask = fourteenRegisterData & 0x0FFF;
+    uint16_t newFourteenRegisterData = fourteenRegisterDataWithMask | ((registersVolumeValue & 0xF0) << 8);
+
+    WriteToRegister(3, newThirdRegisterData);
+    WriteToRegister(14, newFourteenRegisterData);
 }
 
 uint16_t GetNumberFromSerialPort(){
     byte bytesNumber = Serial.available();
     uint16_t currentDigit;
-    
-    uint16_t answear = 0;       
+
+    uint16_t answear = 0;
     for (byte i = bytesNumber - 1; i != 255; i--)
-    {        
-        currentDigit = Serial.read() - 48;        
-        answear += currentDigit * pow(10, i);        
+    {
+        currentDigit = Serial.read() - 48;
+        answear += currentDigit * pow(10, i);
     }
     return answear;
 }
 
-void Initialize(uint8_t radioAddress, uint16_t writableRegisters[18]){
-    for (uint8_t i = 1; i < 18; i++)
-    {        
-        writeToRegister(radioAddress, i, writableRegisters[i]);       
-    }   
-    writeToRegister(radioAddress, 0, writableRegisters[0]);     
-    bool isReady;
-    do {
-        isReady = ReadBitFromRegister(ar1010Address, 0x13, 5);
-        // Serial.print(isReady);
+void Initialize(uint16_t writableRegisters[18]){
+    // Serial.println("Запуск инициализации.");
+    for (byte i = 1; i < 18; i++)
+    {
+        WriteToRegister(i, writableRegisters[i]);
     }
-    while (!isReady);  
-    Serial.println("Окончена инициализация!");     
+    WriteToRegister(0, writableRegisters[0]);
+    bool isReady;
+    // Serial.println("Запуск цикла.");
+    for (byte i = 0; i < 10; i++)
+    {
+        // Serial.print("Итерация №");
+        // Serial.println(i);
+        isReady = ReadBitFromRegister(0x13, 5);
+        if (isReady)
+            break;
+    }
+    // do {
+    //     isReady = ReadBitFromRegister(0x13, 5);
+    // }
+    // while (!isReady);
+    // Serial.println("Окончена инициализация!");
 }
 
 uint16_t GetCommand(){
@@ -128,69 +173,88 @@ uint16_t GetCommand(){
     return command;
 }
 
-void SetFrequency(uint8_t radioAddress, uint16_t kHzFrequency){
+void SetFrequency(uint16_t kHzFrequency){
     uint16_t convertedFrequency = kHzFrequency - 690;
-    
+
     // Частота должна лежать в нужном диапазоне.
     uint16_t constrainConvertedFrequency = constrain(convertedFrequency, 185, 390);
-    
-    writeBitToRegister(radioAddress, 2, 0, 9);
-    uint16_t registerData = readFromRegister(radioAddress, 2);
-    
-    // Затираем нулями 9 младших разрядов для ввода частоты.
-    uint16_t registerDataWithMask = registerData & 0xFE00;  
-    
-    uint16_t registerDataWithFrequencyValue = registerDataWithMask | constrainConvertedFrequency;    
-    writeToRegister(radioAddress, 2, registerDataWithFrequencyValue);
 
-    writeBitToRegister(radioAddress, 2, 1, 9);    
+    WriteBiteToRegister(2, 0, 9);
+    uint16_t registerData = ReadFromRegister(2);
+
+    // Затираем нулями 9 младших разрядов для ввода частоты.
+    uint16_t registerDataWithMask = registerData & 0xFE00;
+
+    uint16_t registerDataWithFrequencyValue = registerDataWithMask | constrainConvertedFrequency;
+    WriteToRegister(2, registerDataWithFrequencyValue);
+
+    WriteBiteToRegister(2, 1, 9);
 }
 
-bool IsAR1010(uint8_t radioAddress){
-    uint16_t registerData = readFromRegister(radioAddress, 0x1C);    
+bool IsAR1010(){
+    uint16_t registerData = ReadFromRegister(0x1C, _ar1010Address);
+    // Serial.println(registerData, HEX);
     return registerData == 0x1010;
 }
 
-void writeToRegister(uint8_t radioAddress, uint8_t registerAddress){
-    Wire.beginTransmission(radioAddress);
-    Wire.write(registerAddress);    
+void WriteToRegister(byte registerAddress){
+    Wire.beginTransmission(_radioAddress);
+    Wire.write(registerAddress);
     Wire.endTransmission();
 }
 
-void writeToRegister(uint8_t radioAddress, uint8_t registerAddress, uint16_t registerData){
-    Wire.beginTransmission(radioAddress);
-    Wire.write(registerAddress);    
-    Wire.write(uint8_t((registerData & 0xFF00) >> 8)); 
-    Wire.write(uint8_t(registerData & 0x00FF));      
+void WriteToRegister(byte registerAddress, uint16_t registerData){
+    Wire.beginTransmission(_radioAddress);
+    Wire.write(registerAddress);
+    Wire.write(uint8_t((registerData & 0xFF00) >> 8));
+    Wire.write(uint8_t(registerData & 0x00FF));
     Wire.endTransmission();
 }
 
-void writeBitToRegister(uint8_t radioAddress, uint8_t registerAddress, bool bitValue, byte bitNumber){
+void WriteToRegisterWithAddress(byte radioAddress, byte registerAddress){
+    Wire.beginTransmission(radioAddress);
+    Wire.write(registerAddress);
+    Wire.endTransmission();
+}
+
+void WriteBiteToRegister(byte registerAddress, bool bitValue, byte bitNumber){
     uint16_t temp;
 
     // В условии накладывается маска в зависимости от значения бита (0 или 1).
     if (bitValue)
-        temp = readFromRegister(radioAddress, registerAddress) | (1 << bitNumber);
+        temp = ReadFromRegister(registerAddress) | (1 << bitNumber);
     else
-        temp = readFromRegister(radioAddress, registerAddress) & ~(1 << bitNumber);     // ~ - побитовое НЕ 
-        
-    writeToRegister(radioAddress, registerAddress, temp);
+        temp = ReadFromRegister(registerAddress) & ~(1 << bitNumber);     // ~ - побитовое НЕ
+
+    WriteToRegister(registerAddress, temp);
 }
 
-uint16_t readFromRegister(uint8_t radioAddress, uint8_t registerAddress){
-    writeToRegister(radioAddress, registerAddress);
-    Wire.requestFrom(radioAddress, 2);
+uint16_t ReadFromRegister(byte registerAddress){
+    WriteToRegister(registerAddress);
+    Wire.requestFrom(_radioAddress, 2);
     byte highByte, leastByte;
     while(Wire.available()){
-        highByte = Wire.read();               
-        leastByte = Wire.read();                
+        highByte = Wire.read();
+        leastByte = Wire.read();
     }
-    uint16_t registerData = (highByte << 8) + leastByte;    
+    uint16_t registerData = (highByte << 8) + leastByte;
     return registerData;
 }
 
-bool ReadBitFromRegister(uint8_t radioAddress, uint8_t registerAddress, byte bitNumber){
-    uint16_t registerData = readFromRegister(radioAddress, registerAddress);
+uint16_t ReadFromRegister(byte registerAddress, byte radioAddress){
+    WriteToRegisterWithAddress(radioAddress, registerAddress);
+    Wire.requestFrom(radioAddress, 2);
+    byte highByte, leastByte;
+    while(Wire.available()){
+        highByte = Wire.read();
+        leastByte = Wire.read();
+    }
+    uint16_t registerData = (highByte << 8) + leastByte;
+    return registerData;
+}
+
+bool ReadBitFromRegister(byte registerAddress, byte bitNumber){
+    uint16_t registerData = ReadFromRegister(registerAddress);
     uint16_t shiftedRegisterData = registerData >> bitNumber;
     return shiftedRegisterData & 1;
 }
