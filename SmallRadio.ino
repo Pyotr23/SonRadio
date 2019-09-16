@@ -4,6 +4,7 @@
 #include <EEPROM.h>
 
 const byte _ar1010Address = 0x10;
+const byte seekTreshold = 13;
 
 const uint16_t register_init[18] = {
 	0xFFFB,     // R0:  1111 1111 1111 1011
@@ -60,8 +61,7 @@ void loop(){
             {
                 // Совершенно непонятно, откуда берётся нехватка единицы, здесь инициализируемой для компенсации.
                 uint16_t frequencyInKHz = GetNumberFromSerialPort() + 1;
-                SetFrequency(frequencyInKHz);
-                WriteTwoBytesToEeprom(0, frequencyInKHz);
+                SetFrequency(frequencyInKHz);                
                 break;
             }
 
@@ -119,14 +119,23 @@ void StartSeek(bool isUpDirection){
     HardMute(true);   
     WriteBiteToRegister(3, 0, 14);              // Unset SEEK bit.
     WriteBiteToRegister(3, isUpDirection, 15);  // Set SEEKUP bit.
-    SetSeekTreshold(10);
+    SetSeekTreshold(seekTreshold);
     WriteBiteToRegister(3, 1, 14);              // Set SEEK bit.
     bool isContinuedSeek = true;
-    do{
-        isContinuedSeek = !ReadFromRegister(13, 5);
+    do{      
+        isContinuedSeek = !ReadBitFromRegister(0x13, 5);
     }
     while (isContinuedSeek);
     HardMute(false);
+    uint16_t newFrequencyData = ReadFrequency();    
+    uint16_t newFrequency = newFrequencyData + 690;    
+    SetFrequency(newFrequency);
+}
+
+uint16_t ReadFrequency(){
+    uint16_t frequencyRegisterData = ReadFromRegister(0x13);
+    uint16_t frequencyData = frequencyRegisterData >> 7;
+    return frequencyData;
 }
 
 void SetSeekTreshold(byte tresholdValue){
@@ -222,6 +231,7 @@ void SetFrequency(uint16_t kHzFrequency){
     WriteToRegister(2, registerDataWithFrequencyValue);
 
     WriteBiteToRegister(2, 1, 9);
+    WriteTwoBytesToEeprom(0, kHzFrequency);
 }
 
 bool IsAR1010(){
