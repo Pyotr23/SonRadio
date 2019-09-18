@@ -92,12 +92,26 @@ void loop(){
                 bool isUpDirection = GetNumberFromSerialPort();
                 StartSeek(isUpDirection);
                 break;
-            }       
+            } 
+            case 0x3035:    // "05"
+            {
+                byte signalStrength = GetStrength();
+                Serial.println(signalStrength);
+                break;
+            }      
             default:
                 break;
         }
     }
+    Serial.println(GetStrength());
     delay(2000);
+}
+
+byte GetStrength(){
+    uint16_t registerData = ReadFromRegister(0x12);
+    uint16_t maskedRegisterData = registerData & 0xFE00;
+    byte shiftMaskedRegisterData = maskedRegisterData >> 9;
+    return shiftMaskedRegisterData;
 }
 
 void WriteTwoBytesToEeprom(byte firstByteNumber, uint16_t data){
