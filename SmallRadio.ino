@@ -2,6 +2,14 @@
 #include <Wire.h>
 #include <HardwareSerial.h>
 #include <EEPROM.h>
+#include <LiquidCrystal.h>
+
+const byte rsPin = 7;
+const byte ePin = 8;
+const byte d4Pin = 9;
+const byte d5Pin = 10;
+const byte d6Pin = 11;
+const byte d7Pin = 12;
 
 const byte _ar1010Address = 0x10;
 const byte seekTreshold = 13;
@@ -34,11 +42,80 @@ const uint8_t volume_map[19] = {
 	0xF3, 0xF2, 0xF1, 0xF0
 };
 
+const byte strengthRowNumber = 1;
+const byte strengthDigitNumber = 15;
+const byte oneLine[8] = {
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B11111,
+};
+const byte twoLines[8] = {
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B11111,
+    B11111,
+};
+const byte threeLines[8] = {
+    B00000,
+    B00000,
+    B00000,
+    B00000,
+    B11111,
+    B11111,
+    B11111,
+};
+const byte fourLines[8] = {
+    B00000,
+    B00000,
+    B00000,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+};
+const byte fiveLines[8] = {
+    B00000,
+    B00000,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+};
+const byte sixLines[8] = {
+    B00000,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+};
+const byte sevenLines[8] = {
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+    B11111,
+};
+
+byte strengthValue;
 int _radioAddress;
+LiquidCrystal lcd(rsPin, ePin, d4Pin, d5Pin, d6Pin, d7Pin);
 
 void setup(){
     Wire.begin();
     Serial.begin(9600);
+    lcd.begin(16, 2);
     if (IsAR1010()){
         _radioAddress = _ar1010Address;
     }
@@ -103,8 +180,41 @@ void loop(){
                 break;
         }
     }
-    Serial.println(GetStrength());
+    lcd.setCursor(6, 1);
+    strengthValue = GetStrength();
+    lcd.print(strengthValue);
+    ShowStrength(strengthValue);
     delay(2000);
+}
+
+void ShowStrength(byte strengthValue){
+    byte constrainStrength = constrain(strengthValue, 0, 48);
+    byte divisionedStrength = constrainStrength / 7;
+    switch (divisionedStrength){
+        case 0:
+            lcd.createChar(0, oneLine);
+            break;
+        case 1:
+            lcd.createChar(0, twoLines);
+            break;
+        case 2:
+            lcd.createChar(0, threeLines);
+            break;
+        case 3:
+            lcd.createChar(0, fourLines);
+            break;
+        case 4:
+            lcd.createChar(0, fiveLines);
+            break;
+        case 5:
+            lcd.createChar(0, sixLines);
+            break;
+        case 6:
+            lcd.createChar(0, sevenLines);
+            break;
+    }
+    lcd.setCursor(strengthDigitNumber, strengthRowNumber);
+    lcd.write(byte(0));
 }
 
 byte GetStrength(){
@@ -246,7 +356,25 @@ void SetFrequency(uint16_t kHzFrequency){
 
     WriteBiteToRegister(2, 1, 9);
     WriteTwoBytesToEeprom(0, kHzFrequency);
+
+    ShowFrequency(kHzFrequency);
 }
+
+void ShowFrequency(uint16_t frequencyInKHz){
+    if (frequencyInKHz < 1000)
+        lcd.setCursor(1, 1);
+    else
+        lcd.setCursor(0, 1);
+    
+    byte intDigit = frequencyInKHz / 10;
+    lcd.print(intDigit);
+    lcd.setCursor(3, 1);
+    lcd.print(".");
+    byte decimalDigit = frequencyInKHz % 10;
+    lcd.print(decimalDigit);    
+}
+
+
 
 bool IsAR1010(){
     uint16_t registerData = ReadFromRegister(0x1C, _ar1010Address);
